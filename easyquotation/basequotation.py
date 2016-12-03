@@ -1,12 +1,10 @@
 import asyncio
-import json
-import warnings
+# import json
 
 import aiohttp
-import easyutils
-import yarl
-
-from . import helpers
+import datetime
+import time
+import stockcodes
 
 
 class BaseQuotation:
@@ -14,13 +12,15 @@ class BaseQuotation:
     max_num = 800  # 每次请求的最大股票数
     stock_api = ''  # 股票 api
 
-    def __init__(self):
-        self._session = None
+    def __init__(self, rawformat = True):
         stock_codes = self.load_stock_codes()
         self.stock_list = self.gen_stock_list(stock_codes)
-
+        self.rawformat = rawformat
     def gen_stock_list(self, stock_codes):
-        stock_with_exchange_list = [easyutils.stock.get_stock_type(code) + code[-6:] for code in stock_codes]
+        stock_with_exchange_list = list(
+                map(lambda stock_code: ('%s' if stock_code.startswith('s')
+                                        else('sh%s' if stock_code.startswith(('5', '6', '9'))
+                                        else 'sz%s')) % stock_code, stock_codes))
 
         stock_list = []
         request_num = len(stock_codes) // self.max_num + 1
@@ -33,18 +33,11 @@ class BaseQuotation:
 
     @staticmethod
     def load_stock_codes():
-        with open(helpers.stock_code_path()) as f:
-            return json.load(f)['stock']
+        return stockcodes.get_stock_codes()
 
     @property
     def all(self):
-        warnings.warn('use all_market instead', DeprecationWarning)
         return self.get_stock_data(self.stock_list)
-
-    @property
-    def all_market(self):
-        """return quotation with stock_code prefix key"""
-        return self.get_stock_data(self.stock_list, prefix=True)
 
     def stocks(self, stock_codes):
         if type(stock_codes) is not list:
@@ -54,22 +47,19 @@ class BaseQuotation:
         return self.get_stock_data(stock_list)
 
     async def get_stocks_by_range(self, params):
-        headers = {
-            'Accept-Encoding': 'gzip, deflate, sdch',
-            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/54.0.2840.100 Safari/537.36'
-        }
-        url = yarl.URL(self.stock_api + params, encoded=True)
-        try:
-            async with self._session.get(url, timeout=10, headers=headers) as r:
-                response_text = await r.text()
-                return response_text
-        except asyncio.TimeoutError:
-            return None
+        print(u"{}: api:{} get_stocks_by_range({})".format(datetime.datetime.now(), self.stock_api,params))
+        for _ in range(10):
+            try:
+                with aiohttp.ClientSession() as session:
+                    async with session.get(self.stock_api + params) as r:
+                        response_text = await r.text()
+                        return response_text
+            except aiohttp.errors.ClientOSError as err:
+                print(u"{} {}".format(datetime.datetime.now(), err))
+                time.sleep(10)
 
-    def get_stock_data(self, stock_list, **kwargs):
-        self._session = aiohttp.ClientSession()
+    def get_stock_data(self, stock_list):
         coroutines = []
-
         for params in stock_list:
             coroutine = self.get_stocks_by_range(params)
             coroutines.append(coroutine)
@@ -80,8 +70,7 @@ class BaseQuotation:
             asyncio.set_event_loop(loop)
         res = loop.run_until_complete(asyncio.gather(*coroutines))
 
-        self._session.close()
-        return self.format_response_data([x for x in res if x is not None], **kwargs)
+        return self.format_response_data(res)
 
-    def format_response_data(self, rep_data, **kwargs):
+    def format_response_data(self, rep_data):
         pass

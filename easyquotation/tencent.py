@@ -1,4 +1,3 @@
-import re
 from datetime import datetime
 
 from .basequotation import BaseQuotation
@@ -7,10 +6,48 @@ from .basequotation import BaseQuotation
 class Tencent(BaseQuotation):
     """腾讯免费行情获取"""
     stock_api = 'http://qt.gtimg.cn/q='
-    grep_stock_code = re.compile(r'(?<=_)\w+')
     max_num = 60
-
-    def format_response_data(self, rep_data, prefix=False):
+    namemap = {
+        'code': 'code',
+        'name': 'name',
+        'datetime': 'datetime',
+        'close': 'close',  # 昨收
+        'open': 'open',
+        'high': 'high',
+        'low': 'low',
+        'now': 'now',
+        'volume': 'volume',  # 量(手)
+        '成交额(万)': 'amount',
+        '涨跌': 'change',
+        '涨跌(%)': 'change percent',
+        '振幅': 'amplitude',
+        'turnover': 'turnover',  # 换手率？
+        '涨停价': 'upstop',
+        '跌停价': 'dnstop',
+        'bid_volume': 'bidv',
+        'ask_volume': 'askv',
+        'bid1': 'bid1',
+        'bid1_volume': 'bid1v',
+        'bid2': 'bid2',
+        'bid2_volume': 'bid2v',
+        'bid3': 'bid3',
+        'bid3_volume': 'bid3v',
+        'bid4': 'bid4',
+        'bid4_volume': 'bid4v',
+        'bid5': 'bid5',
+        'bid5_volume': 'bid5v',
+        'ask1': 'ask1',
+        'ask1_volume': 'ask1v',
+        'ask2': 'ask2',
+        'ask2_volume': 'ask2v',
+        'ask3': 'ask3',
+        'ask3_volume': 'ask3v',
+        'ask4': 'ask4',
+        'ask4_volume': 'ask4v',
+        'ask5': 'ask5',
+        'ask5_volume': 'ask5v',
+    }
+    def format_response_data(self, rep_data):
         stocks_detail = ''.join(rep_data)
         stock_details = stocks_detail.split(';')
         stock_dict = dict()
@@ -18,7 +55,7 @@ class Tencent(BaseQuotation):
             stock = stock_detail.split('~')
             if len(stock) <= 49:
                 continue
-            stock_code = self.grep_stock_code.search(stock[0]).group() if prefix else stock[2]
+            stock_code = stock[0].lstrip()[2:10]
             stock_dict[stock_code] = {
                 'name': stock[1],
                 'code': stock_code,
@@ -69,4 +106,10 @@ class Tencent(BaseQuotation):
                 '涨停价': float(stock[47]),  # 换成英文
                 '跌停价': float(stock[48])  # 换成英文
             }
+
+        if not self.rawformat:
+            newdict = {self.namemap[x]: stock_dict[stock_code][x] for x in stock_dict[stock_code].keys() if x in self.namemap.keys()}
+            stock_dict[stock_code] = newdict
         return stock_dict
+
+
