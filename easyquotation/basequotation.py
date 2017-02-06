@@ -1,10 +1,13 @@
+# coding:utf8
 import asyncio
-# import json
+import json
+import warnings
 
 import aiohttp
-import datetime
-import time
+import easyutils
+import yarl
 import stockcodes
+from . import helpers
 
 
 class BaseQuotation:
@@ -12,15 +15,23 @@ class BaseQuotation:
     max_num = 800  # 每次请求的最大股票数
     stock_api = ''  # 股票 api
 
-    def __init__(self, rawformat = True):
+    def __init__(self, rawformat=True):
+        self._session = None
         stock_codes = self.load_stock_codes()
         self.stock_list = self.gen_stock_list(stock_codes)
         self.rawformat = rawformat
+
     def gen_stock_list(self, stock_codes):
-        stock_with_exchange_list = list(
-                map(lambda stock_code: ('%s' if stock_code.startswith('s')
-                                        else('sh%s' if stock_code.startswith(('5', '6', '9'))
-                                        else 'sz%s')) % stock_code, stock_codes))
+        # stock_with_exchange_list = list(
+        #         map(lambda stock_code: ('%s' if stock_code.startswith('s')
+        #                                 else('sh%s' if stock_code.startswith(('5', '6', '9'))
+        #                                 else 'sz%s')) % stock_code, stock_codes))
+
+        stock_with_exchange_list = [easyutils.stock.get_stock_type(code) + code[-6:] for code in stock_codes]
+
+        if len(stock_with_exchange_list) < self.max_num:
+            request_list = ','.join(stock_with_exchange_list)
+            return [request_list]
 
         stock_list = []
         request_num = len(stock_codes) // self.max_num + 1
@@ -37,28 +48,46 @@ class BaseQuotation:
 
     @property
     def all(self):
-        return self.get_stock_data(self.stock_list)
+        warnings.warn('use all_market instead', DeprecationWarning)
+
+        return self.get_stock_data(self.stock_list, prefix=True)
+
+    @property
+    def all_market(self):
+        """return quotation with stock_code prefix key"""
+
+        return self.get_stock_data(self.stock_list, prefix=True)
 
     def stocks(self, stock_codes):
         if type(stock_codes) is not list:
             stock_codes = [stock_codes]
 
         stock_list = self.gen_stock_list(stock_codes)
-        return self.get_stock_data(stock_list)
+        return self.get_stock_data(stock_list, prefix=True)
+
+    def fetch_stocks(self, stock_codes):
+        if type(stock_codes) is not list:
+            stock_codes = [stock_codes]
+
+        stock_list = self.gen_stock_list(stock_codes)
+        return self.get_stock_data(stock_list, prefix=True)
 
     async def get_stocks_by_range(self, params):
-        print(u"{}: api:{} get_stocks_by_range({})".format(datetime.datetime.now(), self.stock_api,params))
-        for _ in range(10):
-            try:
-                with aiohttp.ClientSession() as session:
-                    async with session.get(self.stock_api + params) as r:
-                        response_text = await r.text()
-                        return response_text
-            except aiohttp.errors.ClientOSError as err:
-                print(u"{} {}".format(datetime.datetime.now(), err))
-                time.sleep(10)
+        if self._session is None:
+            self._session = aiohttp.ClientSession()
+        headers = {
+            'Accept-Encoding': 'gzip, deflate, sdch',
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/54.0.2840.100 Safari/537.36'
+        }
+        url = yarl.URL(self.stock_api + params, encoded=True)
+        try:
+            async with self._session.get(url, timeout=10, headers=headers) as r:
+                response_text = await r.text()
+                return response_text
+        except asyncio.TimeoutError:
+            return None
 
-    def get_stock_data(self, stock_list):
+    def get_stock_data(self, stock_list, **kwargs):
         coroutines = []
         for params in stock_list:
             coroutine = self.get_stocks_by_range(params)
@@ -70,7 +99,13 @@ class BaseQuotation:
             asyncio.set_event_loop(loop)
         res = loop.run_until_complete(asyncio.gather(*coroutines))
 
-        return self.format_response_data(res)
+        return self.format_response_data([x for x in res if x is not None], **kwargs)
 
-    def format_response_data(self, rep_data):
+    def __del__(self):
+        if self._session is not None:
+            self._session.close()
+
+
+    def format_response_data(self, rep_data, **kwargs):
         pass
+

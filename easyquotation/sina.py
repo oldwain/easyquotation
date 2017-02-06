@@ -1,3 +1,4 @@
+# coding:utf8
 import re
 
 from .basequotation import BaseQuotation
@@ -6,7 +7,9 @@ from .basequotation import BaseQuotation
 class Sina(BaseQuotation):
     """新浪免费行情获取"""
     max_num = 800
-    grep_detail = re.compile(r'(s[hz]\d+)=([^\s][^,]+?)%s%s' % (r',([\.\d]+)' * 29, r',([-\.\d:]+)' * 2))
+    # grep_detail = re.compile(r'(s[hz]\d+)=([^\s][^,]+?)%s%s' % (r',([\.\d]+)' * 29, r',([-\.\d:]+)' * 2))
+    grep_detail = re.compile(r'(\d+)=([^\s][^,]+?)%s%s' % (r',([\.\d]+)' * 29, r',([-\.\d:]+)' * 2))
+    grep_detail_with_prefix = re.compile(r'(\w{2}\d+)=([^\s][^,]+?)%s%s' % (r',([\.\d]+)' * 29, r',([-\.\d:]+)' * 2))
     stock_api = 'http://hq.sinajs.cn/?format=text&list='
 
     namemap = {
@@ -49,9 +52,11 @@ class Sina(BaseQuotation):
         'ask5': 'ask5',
         'ask5_volume': 'ask5v',
     }
-    def format_response_data(self, rep_data):
+
+    def format_response_data(self, rep_data, prefix=False):
         stocks_detail = ''.join(rep_data)
-        result = self.grep_detail.finditer(stocks_detail)
+        grep_str = self.grep_detail_with_prefix if prefix else self.grep_detail
+        result = self.grep_str.finditer(stocks_detail)
         stock_dict = dict()
         for stock_match_object in result:
             stock = stock_match_object.groups()
